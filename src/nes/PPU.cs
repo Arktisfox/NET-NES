@@ -727,9 +727,19 @@ namespace NES
                     state.OAMADDR = value;
                     break;
                 case 0x2004:
-                    if ((state.OAMADDR & 0x03) == 0x02) value &= 0xE3;
-                    state.OAMDATA = value;
-                    state.OAM[state.OAMADDR++] = state.OAMDATA;
+                    if ((state.PPUMASK & (PPUMaskFlags.ShowBackground | PPUMaskFlags.ShowSprites)) != 0 &&
+                        ((state.scanline >= 0 && state.scanline < 240) || state.scanline == totalScanlines - 1))
+                    {
+                        // No OAM write happens. Only the high 6 bits of OAMADDR advance,
+                        // which is a +4 since the low two bits are untouched.
+                        state.OAMADDR = (byte)((state.OAMADDR + 4) & 0xFC);
+                    }
+                    else
+                    {
+                        if ((state.OAMADDR & 0x03) == 0x02) value &= 0xE3;
+                        state.OAMDATA = value;
+                        state.OAM[state.OAMADDR++] = state.OAMDATA;
+                    }
                     break;
                 case 0x2005:
                     if (!state.writeLatch)
@@ -791,20 +801,29 @@ namespace NES
                 case 0x2004:
                     bool renderingEnabled = (state.PPUMASK & (PPUMaskFlags.ShowBackground | PPUMaskFlags.ShowSprites)) != 0;
                     bool visibleScanline = state.scanline >= 0 && state.scanline < 240;
-                    if (renderingEnabled && visibleScanline && state.scanlineCycle >= 1 && state.scanlineCycle <= 64)
+                    int cycle = state.scanlineCycle;
+
+                    if (renderingEnabled && visibleScanline && cycle >= 1 && cycle <= 64)
                     {
+                        // Secondary OAM clear - the port is forced high for the whole phase.
                         result = 0xFF;
                     }
-                    else if (renderingEnabled && visibleScanline && state.scanlineCycle >= 65 && state.scanlineCycle <= 256)
+                    else if (renderingEnabled && visibleScanline && cycle >= 65 && cycle <= 255)
                     {
-                        int evalOffset = (state.scanlineCycle - 65) / 2;
-                        byte evalAddr = (byte)(evalOffset * 4);
-                        result = state.OAM[evalAddr];
+                        // Sprite evaluation: reads follow the entry n is currently on.
+                        int evalOffset = (cycle - 65) / 2;
+                        result = state.OAM[(byte)(evalOffset * 4)];
+                    }
+                    else if (renderingEnabled && visibleScanline && cycle >= 256 && cycle <= 320)
+                    {
+                        // Sprite pattern fetch phase.
+                        result = 0xFF;
                     }
                     else
                     {
                         result = state.OAM[state.OAMADDR];
                     }
+
                     state.openBus = result;
                     break;
                 case 0x2007:
