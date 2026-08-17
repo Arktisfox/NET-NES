@@ -357,6 +357,16 @@ namespace NES
                 RunRenderPipeline(preRender);
             }
 
+            // the sprite shifters should treat all sprites X positions as 0 if rendering
+            // has already been disabled and remains that way during dot 339.
+            if (renderLine && !renderingEnabled && state.scanlineCycle == 339)
+            {
+                for (int i = 0; i < 8; i++)
+                {
+                    spriteX[i] = 0;
+                }
+            }
+
             if (visibleLine && state.scanlineCycle >= 1 && state.scanlineCycle <= 256)
             {
                 OutputPixel(renderingEnabled);
@@ -489,7 +499,10 @@ namespace NES
             // Sprites for the NEXT scanline are selected at dot 257 and their
             // pattern data fetched during 257-320.
             if (cycle == 257) EvaluateSprites(preRender);
-            if (cycle == 320) FetchSpritePatterns(preRender);
+            if (cycle >= 264 && cycle <= 320 && (cycle - 264) % 8 == 0)
+            {
+                FetchSpritePattern((cycle - 264) / 8, preRender);
+            }
         }
 
         private int BgPatternBase => ((state.PPUCTRL & PPUCtrlFlags.BackgroundPattern) != 0) ? 0x1000 : 0x0000;
@@ -572,50 +585,61 @@ namespace NES
             }
         }
 
-        private void FetchSpritePatterns(int preRender)
+        private void FetchSpritePattern(int i, int preRender)
         {
+            if (i >= spriteCount) return;
+
             int evalLine = (state.scanline == preRender) ? -1 : state.scanline;
             bool is8x16 = (state.PPUCTRL & PPUCtrlFlags.SpriteSize) != 0;
             int height = is8x16 ? 16 : 8;
 
-            for (int i = 0; i < spriteCount; i++)
+            byte oamY = secondaryOAM[i * 4 + 0];
+            byte tile = secondaryOAM[i * 4 + 1];
+            byte attr = secondaryOAM[i * 4 + 2];
+            byte oamX = secondaryOAM[i * 4 + 3];
+
+            int row = evalLine - oamY;
+            if ((attr & 0x80) != 0) row = height - 1 - row; // vertical flip
+
+            // If this slot's fetch happens under a new height (sprite size
+            // was disabled before this slot's cycle), and the sprite no longer
+            // fits, don't allow it to contribute to the scanline
+            if (row < 0 || row >= height)
             {
-                byte oamY = secondaryOAM[i * 4 + 0];
-                byte tile = secondaryOAM[i * 4 + 1];
-                byte attr = secondaryOAM[i * 4 + 2];
-                byte oamX = secondaryOAM[i * 4 + 3];
-
-                int row = evalLine - oamY;
-                if ((attr & 0x80) != 0) row = height - 1 - row; // vertical flip
-
-                int addr;
-                if (is8x16)
-                {
-                    addr = ((tile & 0x01) != 0 ? 0x1000 : 0x0000)
-                         + ((((tile & 0xFE) + (row / 8)) & 0xFF) * 16)
-                         + (row % 8);
-                }
-                else
-                {
-                    addr = ((state.PPUCTRL & PPUCtrlFlags.SpritePattern) != 0 ? 0x1000 : 0x0000)
-                         + (tile * 16)
-                         + row;
-                }
-
-                byte lo = Read((ushort)addr);
-                byte hi = Read((ushort)(addr + 8));
-
-                if ((attr & 0x40) != 0) // horizontal flip
-                {
-                    lo = ReverseBits(lo);
-                    hi = ReverseBits(hi);
-                }
-
-                spriteShifterLo[i] = lo;
-                spriteShifterHi[i] = hi;
+                spriteShifterLo[i] = 0;
+                spriteShifterHi[i] = 0;
                 spriteAttr[i] = attr;
                 spriteX[i] = oamX;
+                return;
             }
+
+            int addr;
+            if (is8x16)
+            {
+                addr = ((tile & 0x01) != 0 ? 0x1000 : 0x0000)
+                     + ((((tile & 0xFE) + (row / 8)) & 0xFF) * 16)
+                     + (row % 8);
+            }
+            else
+            {
+                addr = ((state.PPUCTRL & PPUCtrlFlags.SpritePattern) != 0 ? 0x1000 : 0x0000)
+                     + (tile * 16)
+                     + row;
+            }
+
+            byte lo = Read((ushort)addr);
+            byte hi = Read((ushort)(addr + 8));
+
+            if ((attr & 0x40) != 0) // horizontal flip
+            {
+                lo = ReverseBits(lo);
+                hi = ReverseBits(hi);
+            }
+
+            spriteShifterLo[i] = lo;
+            spriteShifterHi[i] = hi;
+            spriteAttr[i] = attr;
+            spriteX[i] = oamX;
         }
 
         private static byte ReverseBits(byte b)
