@@ -71,6 +71,10 @@ namespace NES
         public ushort v; //current VRAM address
         public ushort t; //temp VRAM address
 
+        // OAMADDR as it stood when evaluation began. Latched because the real
+        // clear at 257-320 happens after evaluation, not before it.
+        public byte oamEvalAddr;
+
         // NTSC skips dot 340 of the pre-render scanline on odd frames when
         // rendering is enabled. Tracked here so save states stay consistent.
         public bool oddFrame;
@@ -102,6 +106,7 @@ namespace NES
             openBus = 0x00;
             suppressVblankThisFrame = false;
 
+            oamEvalAddr = 0x00;
             scanlineCycle = 0;
             scanline = 0;
             oddFrame = false;
@@ -133,6 +138,7 @@ namespace NES
             PPUSCROLLY = other.PPUSCROLLY;
             PPUDATA = other.PPUDATA;
 
+            oamEvalAddr = other.oamEvalAddr;
             ppuDataBuffer = other.ppuDataBuffer;
             openBus = other.openBus;
             suppressVblankThisFrame = other.suppressVblankThisFrame;
@@ -461,6 +467,10 @@ namespace NES
                 CopyXFromTToV();
             }
 
+            // OAMADDR as it stood when evaluation began. Latched because the real
+            // clear at 257-320 happens after evaluation, not before it.
+            if (cycle == 65) state.oamEvalAddr = state.OAMADDR;
+
             // OAMADDR is held at zero across the sprite fetch phase.
             if (cycle >= 257 && cycle <= 320) state.OAMADDR = 0;
 
@@ -532,24 +542,33 @@ namespace NES
             spriteZeroInScanline = false;
 
             int height = (state.PPUCTRL & PPUCtrlFlags.SpriteSize) != 0 ? 16 : 8;
+            bool first = true;
 
-            for (int i = 0; i < 64; i++)
+            for (int entry = state.oamEvalAddr; entry < 256; entry += 4)
             {
-                int diff = evalLine - state.OAM[i * 4];
-                if (diff < 0 || diff >= height) continue;
+                int diff = evalLine - state.OAM[entry];
+                bool inRange = diff >= 0 && diff < height;
 
-                if (spriteCount < 8)
+                if (inRange)
                 {
-                    if (i == 0) spriteZeroInScanline = true;
-                    Array.Copy(state.OAM, i * 4, secondaryOAM, spriteCount * 4, 4);
-                    spriteCount++;
+                    if (spriteCount < 8)
+                    {
+                        // Sprite 0 is the first entry evaluated, whatever it is.
+                        if (first) spriteZeroInScanline = true;
+
+                        for (int b = 0; b < 4; b++)
+                            secondaryOAM[spriteCount * 4 + b] = state.OAM[(entry + b) & 0xFF];
+
+                        spriteCount++;
+                    }
+                    else
+                    {
+                        state.PPUSTATUS |= PPUStatusFlags.SpriteOverflow;
+                        break;
+                    }
                 }
-                else
-                {
-                    // overflow
-                    state.PPUSTATUS |= PPUStatusFlags.SpriteOverflow;
-                    break;
-                }
+
+                first = false;
             }
         }
 
