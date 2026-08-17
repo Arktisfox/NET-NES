@@ -36,13 +36,15 @@ Want to use it, and mess around? Here's how you can get started! </br>
    - If you want to use the <strong>terminal</strong>: Point your terminal to the application and run, Windows: `NET-NES --nes <string:rom>`, Unix-like Oses `./NET-NES --nes <string:rom>`
 4. You are ready to go!
 
-### Controls
+### Default Controls
 - (A) = X
 - (B) = Z
 - [START] = [ENTER]
 - [SELECT] = [RSHIFT]
 - D-Pad = ArrowKeys
-
+- Q = Quick Save
+- W = Quick Load
+- 
 <em>Note: Pressing [SPACE] Bar toggles the top menu bar.</em>
 ### Usage
 Simply launching the executable will show the basic GUI. Going `File -> Open ROM` will bring up a file launcher to select your ROM. `Help -> Manual` will show all the basic instructions on how to use, and what to know. More information in the Compatibility section.
@@ -53,9 +55,6 @@ NET-NES flags when using terminal. Note: these flags can be passed in any order,
 - `-s <int>`, `--scale <int>`: Scale window size by factor (2 is default)
 - `-f`, `--fps`: Enables FPS counter (off is default)
 - `-rl`, `--raylib-log`: Enables Raylib logs (off is default)
-- `-d`, `--debug`: Enables debug mode (off is default)
-- `-a`, `--about`: Shows about
-- `-v`, `--version`: Shows version number
 - `-h`, `--help`: Shows help screen
 
 ## Screenshots
@@ -111,7 +110,7 @@ Dr. Mario - Works
 DuckTales - Works
 Execitebike - Works
 Final Fantasy - Works
-Final Fantasy II - Freeze at first Battle (Due to inaccurate Sprite0 Hit timming)
+Final Fantasy II - Works
 Final Fantasy III - Works
 Galaga - Works
 Ice Climber - Works
@@ -122,7 +121,7 @@ Mega Man - Works
 Mega Man 2 - Works
 Mega Man 6 - Works
 Metroid - Works
-Ninja Gaiden - Freeze at Act 1 Screen (Due to inaccurate Sprite0 Hit timming), However you can get it to work if in debug mode you disable "Sprite0 Hit Check"
+Ninja Gaiden - Works
 Ninja Gaiden II - Works
 Ninja Gaiden III - Works
 Pac-Man - Works
@@ -156,119 +155,15 @@ For more see the dotnet publish documentation: https://learn.microsoft.com/en-us
 
 For <strong>MacOS</strong>, building requires signing, <em>especially for Apple Silicon</em>. This part is going to be a general note. Dotnet and C# when running and building will automatically sign the binaries with a simple "ad-hoc" (meaning needed or for this) signature. This needs to be done for using and distributing. On other platforms, compiling for Macs would not be signed, since Apple's `codesign` tool is only on Macs <em>(though others have made open source versions of the tool for cross-platform use)</em>. If you have a unsigned binary compiled on a non-Mac platform now on a Mac platform, a simple "ad-hoc" signing will do and can done by `codesign -s - <BinaryPath>`. When it comes `.app` bundles, signing is also required in the same way. You can bulid the `.app` bundle manually since it's just a directory (Mac build of NET-NES for reference). However, even if the `.app` bundle is made up with already signed binary, you will have to re-sign the <strong>whole</strong> `.app` bundle. This can be done with `codesign --force --deep -s - <AppPath.app>`. 
 
-### Program Architecture
-Here's a little information on the program layout! 
-
-It can seem a bit complex at first, but it's quite simple. I like to write my code, where it should be easy enough for anyone to understand, no matter their knowledge with emulation, or code! With that in mind, this portion itself is written to be simple, no matter your skill level, so anybody should get the idea of the program works, it's sort of the reason why I write these parts! :)
-
-C# object oriented design allows us to think all the componets of the NES hardware, and make them into classes, which can be used to represent a object. The root of the `src` contains all the main code. With that, we have the following:
-- `CPU.cs`: The 8-Bit NES CPU (Ricoh 2A03)
-- `PPU.cs`: The PPU (Picture Processing Unit) of the NES is responsible for drawing the graphics on screen
-- `Bus.cs`: Contains the `Read()` and `Write()` functions, directing bus for RAM, VRAM, and the cartridge, this also there we can "wire up" some our componets here that rely on memory access
-- `Cartridge.cs`: Contains memory for PRG and CHR, set's up the cartidge state depending on the iNES header
-- `src/mapper`: Contains the different memory bank controllers needed, all to make the NES support larger ROMs
-  - `Mapper0.cs`: NROM
-  - `Mapper1.cs`: MMC1
-  - `Mapper2.cs`: UxROM
-  - `Mapper4.cs`: MMC3
-- `Input.cs`: Handles input for the NES
-- `NES.cs`: Where we "wire up" all the componets
-- `Test.cs`: Used for JSON test for the CPU
-- `TestBus.cs`: A simplified bus for simple memory access for testing
-- `TestRunner.cs`: Runs the JSON test from `Test.cs`
-- `GUI.cs`: A simple GUI to wrap the NES core
-- `Helper.cs`: Static class to hold global values
-- `Program.cs`: The entry point of the emulator
-
-<em>This emulator is <strong>not meant to be cycle accurate</strong>, as the PPU does not run dot by dot, but by scanline.</em>
-
-Each component should stick to it's task. The core of this emulator is written in plain C#, with the only outside library being raylib-cs which is used very minimally. It would be something I may do where I refactor the code to make the core more independent, which should be easy enough to do.
-
-To see how the main loop works, we can look into the `NES.cs` in the `Run()` function: 
-```cs
-public void Run() {
-  int cycles = 0;
-
-  bus.input.UpdateController();
-
-  while (cycles < 29828) {
-    int used = bus.cpu.ExecuteInstruction();
-    cycles += used;
-    bus.ppu.Step(used * 3);
-  }
-
-  bus.ppu.DrawFrame(Helper.scale);
-}
-```
-The loop is quite simple, and uses a simple approach of having the "CPU drive". This is done my the CPU's `ExecuteInstruction()` function, where after every instruction, it return it's cycle count. We can pass this count into the PPU's `Step()` function as it's important to keep the CPU and PPU in sync. We do times by three here because the PPU runs 3x faster then the CPU. The PPU's `Step()` function using the cycle count keeps tracks of it's own cycles to perform the correct behaviour at certain cycle threshold. We have this loop run for 29828 cycles, since having 29828 cycles done represent a frame worth of cylces for around 60 FPS (NTSC).
-
-All the other components should follows their own sturucture to do it's job. For example the `CPU` will execute a instruction using the `Bus`, reading the opcode to see what instruction to do, then writing to memory if needed or handle a interrupt. The `PPU` will take in the number of cycles for tracking, and perform certain behaviour such as after cycle relative to scanline, `scanlineCycle >= 341`, it can render a scanline. The `Bus` is what connects the `CPU` and `PPU` to memory, and it's all three components can "talk" to each other using MMIO which are get special places in memory where both componets can read and write depending on use, for example like PPUDATA `$2000` which where VRAM data can we read and write to. Let's look at `CPU.cs` as a example. A constructor is made to set the default state of the componet:
-```cs
-public CPU(IBus bus) {
-     A = X = Y = 0;
-     PC = 0x0000;
-     SP = 0x0000;
-     status = 0;
-
-     this.bus = bus;
-
-     irqRequested = false;
-     nmiRequested = false;
-
-     Console.WriteLine("CPU init");
-}
-```
-Notice how other component can rely on others, and how they need to be passed in. In this case of the CPU, the Bus is passed in, as many insturction need to access to the memory. Each component then had the "main" method they would be invoking. For PPU called `Step()` as we step every cycle passed in. For the CPU, we have `ExecuteInstruction()`:
-```cs
-private byte Fetch() {
-  return bus.Read(PC++);
-}
-
-public int ExecuteInstruction() {
-  ...
-  byte opcode = Fetch();
-
-  switch (opcode) {
-  //LDA, LDX, LDY, STA, STX, STY
-  case 0xA9: return LDR(ref A, Immediate, 2);
-  case 0xA5: return LDR(ref A, ZeroPage, 3);
-  case 0xB5: return LDR(ref A, ZeroPageX, 4);
-  ...
-
-private int LDR(ref byte r, Func<AddrResult> mode, int baseCycles) {
-  var addr = mode();
-  r = bus.Read(addr.address);
-  SetZN(r);
-
-  return baseCycles + addr.extraCycles;
-}
-```
-If you have seen my Gameboy emulator, CODE-DMG, all of this may seem familiar. If you go over each component step by step, it's pretty each to follow along.
-## Credits/Resources
-NET-NES wouldn't be possible without these resources:
-- NESDEV Wiki: https://www.nesdev.org/wiki/Nesdev_Wiki
-- 6502 Opcodes: https://www.masswerk.at/6502/6502_instruction_set.html
-- Obelisk 6502 Documentation: https://www.nesdev.org/obelisk-6502-guide/
-- SingleStepTest JSON Test 65x02: https://github.com/SingleStepTests/65x02
-- MOS Microcomputer Programming Manual: https://archive.org/details/mos_microcomputers_programming_manual
-- MOS Microcomputer Hardware Manual: https://web.archive.org/web/20221106105459if_/http://archive.6502.org/books/mcs6500_family_hardware_manual.pdf
-- Rodrigo Copetti's NES/Famicom Architecture A Practical Analysis: https://www.copetti.org/writings/consoles/nes/
-
-These documentations were so useful, I recommend anyone to use them!
-Also shoutout to the EmuDev community! 
-
 ## Upcoming Features
 - [ ] Debugger
   - VRAM viewer, Memory viewer, step mode
 - [ ] Add More Mappers
   - Mapper 3
 - [ ] Player 2 Controller Support
-- [ ] Audio
 - Post any feature request in the Issues tab!
 
 ## Known issues
-- [ ] Upgrade PPU to dot by dot
-  - Will make it more accurate
 - [ ] Improve interrupt logic
 - If you find other bugs/issues, open up a issue in the Issue tab
 
