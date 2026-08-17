@@ -110,7 +110,7 @@ Dr. Mario - Works
 DuckTales - Works
 Execitebike - Works
 Final Fantasy - Works
-Final Fantasy II - Freeze at first Battle (Due to inaccurate Sprite0 Hit timming)
+Final Fantasy II - Works
 Final Fantasy III - Works
 Galaga - Works
 Ice Climber - Works
@@ -121,7 +121,7 @@ Mega Man - Works
 Mega Man 2 - Works
 Mega Man 6 - Works
 Metroid - Works
-Ninja Gaiden - Freeze at Act 1 Screen (Due to inaccurate Sprite0 Hit timming), However you can get it to work if in debug mode you disable "Sprite0 Hit Check"
+Ninja Gaiden - Works
 Ninja Gaiden II - Works
 Ninja Gaiden III - Works
 Pac-Man - Works
