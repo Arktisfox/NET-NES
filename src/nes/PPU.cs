@@ -2,15 +2,57 @@ using Raylib_cs;
 
 namespace NES
 {
+    [Flags]
+    public enum PPUCtrlFlags : byte
+    {
+        None = 0,
+        NametableX = 1 << 0,
+        NametableY = 1 << 1,
+        Increment32 = 1 << 2,
+        SpritePattern = 1 << 3,
+        BackgroundPattern = 1 << 4,
+        SpriteSize = 1 << 5,
+        MasterSlave = 1 << 6,
+        GenerateNMI = 1 << 7,
+        All = NametableX | NametableY | Increment32 | SpritePattern | BackgroundPattern
+              | SpriteSize | MasterSlave | GenerateNMI
+    }
+
+    [Flags]
+    public enum PPUMaskFlags : byte
+    {
+        None = 0,
+        Grayscale = 1 << 0,
+        ShowBackgroundLeft = 1 << 1,
+        ShowSpritesLeft = 1 << 2,
+        ShowBackground = 1 << 3,
+        ShowSprites = 1 << 4,
+        EmphasizeRed = 1 << 5,
+        EmphasizeGreen = 1 << 6,
+        EmphasizeBlue = 1 << 7,
+        All = Grayscale | ShowBackgroundLeft | ShowSpritesLeft | ShowSprites | EmphasizeRed | EmphasizeGreen | EmphasizeBlue
+    }
+
+    [Flags]
+    public enum PPUStatusFlags : byte
+    {
+        None = 0,
+        SpriteOverflow = 1 << 5,
+        Sprite0Hit = 1 << 6,
+        VBlank = 1 << 7,
+        All = SpriteOverflow | Sprite0Hit | VBlank
+    }
+
     public struct PPUState
     {
         public byte[] VRAM;
         public byte[] PaletteRam;
         public byte[] OAM;
 
-        public byte PPUCTRL; //$2000
-        public byte PPUMASK; //$2001
-        public byte PPUSTATUS; //$2002
+        public PPUCtrlFlags PPUCTRL; //$2000
+        public PPUMaskFlags PPUMASK; //$2001
+        public PPUStatusFlags PPUSTATUS; //$2002
+
         public byte OAMADDR; //$2003
         public byte OAMDATA; //$2004
         public byte PPUSCROLLX, PPUSCROLLY; //$2005
@@ -256,7 +298,8 @@ namespace NES
         private void UpdateNmiLine()
         {
             if (bus == null || bus.CPU == null) return;
-            bool asserted = (state.PPUSTATUS & 0x80) != 0 && (state.PPUCTRL & 0x80) != 0;
+            bool asserted = (state.PPUSTATUS & PPUStatusFlags.VBlank) != 0 &&
+                            (state.PPUCTRL & PPUCtrlFlags.GenerateNMI) != 0;
             bus.CPU.SetNmiLine(asserted);
         }
 
@@ -271,21 +314,23 @@ namespace NES
         private void StepOneDot()
         {
             int preRender = totalScanlines - 1;
-            bool renderingEnabled = (state.PPUMASK & 0x18) != 0;
+            bool renderingEnabled = (state.PPUMASK & (PPUMaskFlags.ShowBackground | PPUMaskFlags.ShowSprites)) != 0;
             bool visibleLine = state.scanline >= 0 && state.scanline < 240;
             bool renderLine = visibleLine || state.scanline == preRender;
 
             // Deferred by one dot from the pixel that caused it.
             if (sprite0HitPending)
             {
-                state.PPUSTATUS |= 0x40;
+                state.PPUSTATUS |= PPUStatusFlags.Sprite0Hit;
                 sprite0HitPending = false;
             }
 
             // Clear VBLANK / sprite 0 hit / sprite overflow at dot 1 of the  pre-render scanline
             if (state.scanline == preRender && state.scanlineCycle == 0)
             {
-                state.PPUSTATUS &= 0x1F;
+                state.PPUSTATUS &= ~(PPUStatusFlags.VBlank |
+                                     PPUStatusFlags.Sprite0Hit |
+                                     PPUStatusFlags.SpriteOverflow);
                 state.suppressVblankThisFrame = false;
                 UpdateNmiLine();
             }
@@ -295,7 +340,7 @@ namespace NES
             {
                 if (!state.suppressVblankThisFrame)
                 {
-                    state.PPUSTATUS |= 0x80;
+                    state.PPUSTATUS |= PPUStatusFlags.VBlank;
                 }
                 state.suppressVblankThisFrame = false;
                 UpdateNmiLine();
@@ -437,7 +482,7 @@ namespace NES
             if (cycle == 320) FetchSpritePatterns(preRender);
         }
 
-        private int BgPatternBase => (state.PPUCTRL & 0x10) != 0 ? 0x1000 : 0x0000;
+        private int BgPatternBase => ((state.PPUCTRL & PPUCtrlFlags.BackgroundPattern) != 0) ? 0x1000 : 0x0000;
         private int FineY => (state.v >> 12) & 0x07;
 
         private void LoadBackgroundShifters()
@@ -486,7 +531,7 @@ namespace NES
             spriteCount = 0;
             spriteZeroInScanline = false;
 
-            int height = (state.PPUCTRL & 0x20) != 0 ? 16 : 8;
+            int height = (state.PPUCTRL & PPUCtrlFlags.SpriteSize) != 0 ? 16 : 8;
 
             for (int i = 0; i < 64; i++)
             {
@@ -502,7 +547,7 @@ namespace NES
                 else
                 {
                     // overflow
-                    state.PPUSTATUS |= 0x20;
+                    state.PPUSTATUS |= PPUStatusFlags.SpriteOverflow;
                     break;
                 }
             }
@@ -511,7 +556,7 @@ namespace NES
         private void FetchSpritePatterns(int preRender)
         {
             int evalLine = (state.scanline == preRender) ? -1 : state.scanline;
-            bool is8x16 = (state.PPUCTRL & 0x20) != 0;
+            bool is8x16 = (state.PPUCTRL & PPUCtrlFlags.SpriteSize) != 0;
             int height = is8x16 ? 16 : 8;
 
             for (int i = 0; i < spriteCount; i++)
@@ -533,7 +578,7 @@ namespace NES
                 }
                 else
                 {
-                    addr = ((state.PPUCTRL & 0x08) != 0 ? 0x1000 : 0x0000)
+                    addr = ((state.PPUCTRL & PPUCtrlFlags.SpritePattern) != 0 ? 0x1000 : 0x0000)
                          + (tile * 16)
                          + row;
                 }
@@ -570,8 +615,8 @@ namespace NES
             int bgPalette = 0;
 
             if (renderingEnabled
-                && (state.PPUMASK & 0x08) != 0
-                && (x >= 8 || (state.PPUMASK & 0x02) != 0))
+                && (state.PPUMASK & PPUMaskFlags.ShowBackground) != 0
+                && (x >= 8 || (state.PPUMASK & PPUMaskFlags.ShowBackgroundLeft) != 0))
             {
                 ushort bitMux = (ushort)(0x8000 >> state.fineX);
 
@@ -590,8 +635,8 @@ namespace NES
             bool sprite0Rendered = false;
 
             if (renderingEnabled
-                && (state.PPUMASK & 0x10) != 0
-                && (x >= 8 || (state.PPUMASK & 0x04) != 0))
+                && (state.PPUMASK & PPUMaskFlags.ShowSprites) != 0
+                && (x >= 8 || (state.PPUMASK & PPUMaskFlags.ShowSpritesLeft) != 0))
             {
                 for (int i = 0; i < spriteCount; i++)
                 {
@@ -612,7 +657,7 @@ namespace NES
 
             // Sprite 0 hit. Both pixels must be opaque
             if (sprite0Rendered && bgPixel != 0 && fgPixel != 0
-                && x != 255 && (state.PPUSTATUS & 0x40) == 0)
+                && x != 255 && !state.PPUSTATUS.HasFlag(PPUStatusFlags.Sprite0Hit))
             {
                 sprite0HitPending = true;
             }
@@ -647,13 +692,13 @@ namespace NES
             switch (address)
             {
                 case 0x2000:
-                    state.PPUCTRL = value;
+                    state.PPUCTRL = (PPUCtrlFlags)value;
                     state.t = (ushort)((state.t & 0xF3FF) | ((value & 0x03) << 10));
                     // Enabling bit 7 while the vblank flag is set asserts /NMI
                     UpdateNmiLine();
                     break;
                 case 0x2001:
-                    state.PPUMASK = value;
+                    state.PPUMASK = (PPUMaskFlags)value;
                     break;
                 case 0x2002:
                     // Writes to $2002 are ignored on hardware; only the open
@@ -717,14 +762,15 @@ namespace NES
                         state.suppressVblankThisFrame = true;
                     }
 
-                    result = (byte)((state.PPUSTATUS & 0xE0) | (state.openBus & 0x1F));
-                    state.PPUSTATUS &= 0x7F;
+                    result = (byte)((byte)(state.PPUSTATUS & PPUStatusFlags.All) | (state.openBus & 0x1F));
+                    state.PPUSTATUS &= ~PPUStatusFlags.VBlank;
+
                     UpdateNmiLine();
                     state.writeLatch = false;
                     state.openBus = result;
                     break;
                 case 0x2004:
-                    bool renderingEnabled = (state.PPUMASK & 0x18) != 0;
+                    bool renderingEnabled = (state.PPUMASK & (PPUMaskFlags.ShowBackground | PPUMaskFlags.ShowSprites)) != 0;
                     bool visibleScanline = state.scanline >= 0 && state.scanline < 240;
                     if (renderingEnabled && visibleScanline && state.scanlineCycle >= 1 && state.scanlineCycle <= 64)
                     {
@@ -753,7 +799,7 @@ namespace NES
                             result = (byte)((result & 0x3F) | (state.openBus & 0xC0));
 
                             // Greyscale mode (PPUMASK bit 0) forces the low 4 bits to zero
-                            if ((state.PPUMASK & 0x01) != 0)
+                            if (state.PPUMASK.HasFlag(PPUMaskFlags.Grayscale))
                             {
                                 result &= 0xF0;
                             }
@@ -780,7 +826,7 @@ namespace NES
 
         private void IncrementPPUAddress()
         {
-            bool renderingEnabled = (state.PPUMASK & 0x18) != 0;
+            bool renderingEnabled = (state.PPUMASK & (PPUMaskFlags.ShowBackground | PPUMaskFlags.ShowSprites)) != 0;
             bool renderingScanline = state.scanline < 240 || state.scanline == (totalScanlines - 1);
 
             if (renderingEnabled && renderingScanline)
@@ -792,7 +838,7 @@ namespace NES
             }
             else
             {
-                int step = ((state.PPUCTRL & 0x04) != 0) ? 32 : 1;
+                int step = (state.PPUCTRL & PPUCtrlFlags.Increment32) != 0 ? 32 : 1;
                 state.v = (ushort)((state.v + step) & 0x7FFF); // v is 15 bits
             }
         }
@@ -924,9 +970,12 @@ namespace NES
         private Color Colorize(byte paletteEntry)
         {
             int index = paletteEntry & 0x3F;
-            if ((state.PPUMASK & 0x01) != 0) index &= 0x30;
+            if ((state.PPUMASK & PPUMaskFlags.Grayscale) != 0)
+            {
+                index &= 0x30;
+            }
 
-            int emphasis = (state.PPUMASK >> 5) & 0x07;
+            int emphasis = ((byte)state.PPUMASK >> 5) & 0x07;
             if (tvSystem == TvSystem.PAL)
             {
                 emphasis = (emphasis & 0x04) | ((emphasis & 0x01) << 1) | ((emphasis & 0x02) >> 1);

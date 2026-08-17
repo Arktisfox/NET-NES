@@ -191,9 +191,9 @@ public class SaveState
                     VRAM = vram,
                     PaletteRam = paletteRam,
                     OAM = oam,
-                    PPUCTRL = ppuctrl,
-                    PPUMASK = ppumask,
-                    PPUSTATUS = ppustatus,
+                    PPUCTRL = (PPUCtrlFlags)ppuctrl,
+                    PPUMASK = (PPUMaskFlags)ppumask,
+                    PPUSTATUS = (PPUStatusFlags)ppustatus,
                     OAMADDR = oamaddr,
                     OAMDATA = oamdata,
                     PPUSCROLLX = ppuscrollx,
@@ -398,9 +398,9 @@ public class SaveState
         writer.Write(ppuState.PaletteRam);
         writer.Write(ppuState.OAM);
 
-        writer.Write(ppuState.PPUCTRL);
-        writer.Write(ppuState.PPUMASK);
-        writer.Write(ppuState.PPUSTATUS);
+        writer.Write((byte)ppuState.PPUCTRL);
+        writer.Write((byte)ppuState.PPUMASK);
+        writer.Write((byte)ppuState.PPUSTATUS);
         writer.Write(ppuState.OAMADDR);
         writer.Write(ppuState.OAMDATA);
         writer.Write(ppuState.PPUSCROLLX);
