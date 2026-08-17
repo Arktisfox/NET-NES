@@ -1,7 +1,10 @@
+using NES;
 using Newtonsoft.Json;
 
-class JSONTest {
-    public class ProcessorState {
+class JSONTest 
+{
+    public class ProcessorState 
+    {
         public int pc { get; set; }
         public int s { get; set; }
         public int a { get; set; }
@@ -11,7 +14,9 @@ class JSONTest {
 
         public List<List<int>> ram { get; set; } = new List<List<int>>();
     }
-    public class Test {
+
+    public class Test 
+    {
         public string name { get; set; } = "";
         public ProcessorState initial { get; set; } = new ProcessorState();
         public ProcessorState final { get; set; } = new ProcessorState();
@@ -21,12 +26,14 @@ class JSONTest {
     public IBus bus;
     public CPU cpu;
 
-    public JSONTest() {
+    public JSONTest() 
+    {
         bus = new TestBus();
         cpu = new CPU(bus);
     }
 
-    public void Run(string jsonPath) {
+    public void Run(string jsonPath) 
+    {
         string filePath = jsonPath;
         
         var json = File.ReadAllText(filePath);
@@ -34,15 +41,17 @@ class JSONTest {
         foreach (var test in tests) {
             Console.WriteLine(test.name);
 
-            cpu.PC = (ushort)test.initial.pc;
-            cpu.SP = (ushort)test.initial.s;
-            cpu.A = (byte)test.initial.a;
-            cpu.X = (byte)test.initial.x;
-            cpu.Y = (byte)test.initial.y;
-            cpu.status = (byte)test.initial.p;
+            var cpuState = cpu.State;
+            cpuState.PC = (ushort)test.initial.pc;
+            cpuState.SP = (ushort)test.initial.s;
+            cpuState.A = (byte)test.initial.a;
+            cpuState.X = (byte)test.initial.x;
+            cpuState.Y = (byte)test.initial.y;
+            cpuState.status = (byte)test.initial.p;
+            cpu.State = cpuState;
 
-            string initCPU16Reg = $"PC: {cpu.PC}, SP: {cpu.SP}";
-            string initCPUReg = $"A: {cpu.A}, X: {cpu.X}, Y: {cpu.Y}, P: {cpu.status}";
+            string initCPU16Reg = $"PC: {cpuState.PC}, SP: {cpuState.SP}";
+            string initCPUReg = $"A: {cpuState.A}, X: {cpuState.X}, Y: {cpuState.Y}, P: {cpuState.status}";
             string initRAM = "";
 
             foreach (var entry in test.initial.ram) {
@@ -52,17 +61,18 @@ class JSONTest {
 
             int actualCycleCount = cpu.ExecuteInstruction();
 
-            string finalCPU16Reg = $"PC: {cpu.PC}, SP: {cpu.SP}";
-            string finalCPUReg = $"A: {cpu.A}, X: {cpu.X}, Y: {cpu.Y}, P: {cpu.status}";
+            cpuState = cpu.State;
+            string finalCPU16Reg = $"PC: {cpuState.PC}, SP: {cpuState.SP}";
+            string finalCPUReg = $"A: {cpuState.A}, X: {cpuState.X}, Y: {cpuState.Y}, P: {cpuState.status}";
             string finalRAM = "";
 
             bool isMismatch = false;
-            if (cpu.A != test.final.a) { Console.WriteLine($"Mismatch in A: Expected {test.final.a}, Found {cpu.A}"); isMismatch = true; }
-            if (cpu.X != test.final.x) { Console.WriteLine($"Mismatch in X: Expected {test.final.x}, Found {cpu.X}"); isMismatch = true; }
-            if (cpu.Y != test.final.y) { Console.WriteLine($"Mismatch in Y: Expected {test.final.y}, Found {cpu.Y}"); isMismatch = true; }
-            if (cpu.status != test.final.p) { Console.WriteLine($"Mismatch in P: Expected {test.final.p}, Found {cpu.status}"); isMismatch = true; }
-            if (cpu.PC != test.final.pc) { Console.WriteLine($"Mismatch in Pc: Expected {test.final.pc}, Found {cpu.PC}"); isMismatch = true; }
-            if (cpu.SP != test.final.s) { Console.WriteLine($"Mismatch in Sp: Expected {test.final.s}, Found {cpu.SP}"); isMismatch = true; }
+            if (cpuState.A != test.final.a) { Console.WriteLine($"Mismatch in A: Expected {test.final.a}, Found {cpuState.A}"); isMismatch = true; }
+            if (cpuState.X != test.final.x) { Console.WriteLine($"Mismatch in X: Expected {test.final.x}, Found {cpuState.X}"); isMismatch = true; }
+            if (cpuState.Y != test.final.y) { Console.WriteLine($"Mismatch in Y: Expected {test.final.y}, Found {cpuState.Y}"); isMismatch = true; }
+            if (cpuState.status != test.final.p) { Console.WriteLine($"Mismatch in P: Expected {test.final.p}, Found {cpuState.status}"); isMismatch = true; }
+            if (cpuState.PC != test.final.pc) { Console.WriteLine($"Mismatch in Pc: Expected {test.final.pc}, Found {cpuState.PC}"); isMismatch = true; }
+            if (cpuState.SP != test.final.s) { Console.WriteLine($"Mismatch in Sp: Expected {test.final.s}, Found {cpuState.SP}"); isMismatch = true; }
             
             foreach (var entry in test.final.ram) {
                 int valueInMMU = bus.Read((ushort)entry[0]);
