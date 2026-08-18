@@ -30,16 +30,6 @@ namespace NES
             }
         }
 
-        public void Draw(int scale)
-        {
-            bus.PPU.DrawFrame(scale);
-        }
-
-        public void Draw()
-        {
-            Draw(1);
-        }
-
         public NES(Cartridge cartridge, TvSystem tvSystem)
         {
             this.cartridge = cartridge;

@@ -24,8 +24,10 @@ namespace Emulator
             get => EmulatorState.NES;
             set => EmulatorState.NES = value;
         }
+        
         private Audio audio;
         private Input input;
+        private Renderer renderer;
 
         private readonly Stopwatch emulationClock = Stopwatch.StartNew();
         private double emulationTimeOwed = 0.0;
@@ -34,7 +36,7 @@ namespace Emulator
         private GUI_About aboutWindow;
         private GUI_Remapper remapperWindow;
         private GUI_Manual manualWindow;
-        private GUI_Scale scaleWindow;
+        private GUI_VideoSettings videoSettingsWindow;
         private GUI_GameGenie gameGenieWindow;
 
         private FileDialog fileDialog;
@@ -79,11 +81,19 @@ namespace Emulator
                 UseLeftStickAsDPad = config.UseLeftStickAsDPad
             };
 
+            renderer = new Renderer
+            {
+                PaddingTop = config.PaddingTop,
+                PaddingLeft = config.PaddingLeft,
+                PaddingBottom = config.PaddingBottom,
+                PaddingRight = config.PaddingRight,
+            };
+
             // Create dialogs
             aboutWindow = new GUI_About();
             remapperWindow = new GUI_Remapper(input);
             manualWindow = new GUI_Manual();
-            scaleWindow = new GUI_Scale();
+            videoSettingsWindow = new GUI_VideoSettings(renderer);
             gameGenieWindow = new GUI_GameGenie();
 
             // Unsafe access for no imgui.ini files
@@ -122,6 +132,10 @@ namespace Emulator
             config.GamepadBindings = input.GamepadBindings;
             config.GamepadIndex = input.GamepadIndex;
             config.UseLeftStickAsDPad = input.UseLeftStickAsDPad;
+            config.PaddingRight = renderer.PaddingRight;
+            config.PaddingLeft = renderer.PaddingLeft;
+            config.PaddingTop = renderer.PaddingTop;
+            config.PaddingBottom = renderer.PaddingBottom;
         }
 
         private void LoadConfig()
@@ -345,7 +359,7 @@ namespace Emulator
                 Raylib.BeginDrawing();
                 rlImGui.Begin();
                 GUI_Style.ApplyNesTheme();
-                Raylib.ClearBackground(Color.Black);
+                Raylib.ClearBackground(Raylib_cs.Color.Black);
 
                 MenuBar();
 
@@ -373,7 +387,8 @@ namespace Emulator
                             emulationTimeOwed -= emulatedFrameDuration;
                         }
                     }
-                    nes.Draw(EmulatorState.scale);
+
+                    renderer.DrawFrame(nes.Bus.PPU, EmulatorState.scale);
                     audio.Update();
                 }
                 else if (EmulatorState.insertingRom == true)
@@ -382,8 +397,8 @@ namespace Emulator
                 }
                 else
                 {
-                    Raylib.ClearBackground(Color.DarkGray);
-                    Raylib.DrawTextureEx(backgroundTexture, new Vector2(0, -5), 0, (float)(EmulatorState.scale * 0.50), Color.White);
+                    Raylib.ClearBackground(Raylib_cs.Color.DarkGray);
+                    Raylib.DrawTextureEx(backgroundTexture, new Vector2(0, -5), 0, (float)(EmulatorState.scale * 0.50), Raylib_cs.Color.White);
                 }
 
                 // Post-update
@@ -504,13 +519,9 @@ namespace Emulator
                             ImGui.Separator();
                             ImGui.EndMenu();
                         }
-                        if (ImGui.BeginMenu("Video"))
+                        if (ImGui.MenuItem("Video"))
                         {
-                            if (ImGui.MenuItem("Window Size"))
-                            {
-                                scaleWindow.Showing = true;
-                            }
-                            ImGui.EndMenu();
+                            videoSettingsWindow.Showing = true;
                         }
                         if (ImGui.BeginMenu("Region"))
                         {
@@ -633,7 +644,7 @@ namespace Emulator
                 EmulatorState.insertingRom = true;
             }
 
-            if (scaleWindow.Showing) scaleWindow.Draw();
+            if (videoSettingsWindow.Showing) videoSettingsWindow.Draw();
             if (manualWindow.Showing) manualWindow.Draw();
             if (aboutWindow.Showing) aboutWindow.Draw();
             if (remapperWindow.Showing) remapperWindow.Draw();

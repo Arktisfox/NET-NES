@@ -1,5 +1,3 @@
-using Raylib_cs;
-
 namespace NES
 {
     [Flags]
@@ -162,6 +160,7 @@ namespace NES
     public class PPU
     {
         public bool SkipSprite0HitCheck = false;
+        public IReadOnlyList<Color> FrameBuffer => frameBuffer;
 
         public PPUState State
         {
@@ -177,9 +176,11 @@ namespace NES
         private PPUState state = new PPUState();
         private Bus bus;
 
+        private readonly Color[] frameBuffer;
+
         // Constants
-        private const int ScreenWidth = 256;
-        private const int ScreenHeight = 240;
+        public const int ScreenWidth = 256;
+        public const int ScreenHeight = 240;
         private const int CyclesPerScanlines = 341;
 
         //NES 64 Color Palette
@@ -206,13 +207,6 @@ namespace NES
 
         private readonly int totalScanlines;
         private readonly TvSystem tvSystem;
-
-        private Image image;
-        private Texture2D texture;
-        public int textureX = 0;
-        public int textureY = 0;
-
-        private readonly Color[] frameBuffer;
 
         // Background fetch pipeline.
         private byte bgNextTileId;
@@ -261,10 +255,9 @@ namespace NES
                     if (emphB) { r *= Attenuation; g *= Attenuation; }
 
                     tables[e][c] = new Color(
-                        (int)Math.Clamp(r, 0, 255),
-                        (int)Math.Clamp(g, 0, 255),
-                        (int)Math.Clamp(b, 0, 255),
-                        255);
+                        (byte)Math.Clamp(r, 0, 255),
+                        (byte)Math.Clamp(g, 0, 255),
+                        (byte)Math.Clamp(b, 0, 255));
                 }
             }
             return tables;
@@ -1046,36 +1039,13 @@ namespace NES
             return EmphasisPalettes[emphasis][index];
         }
 
-        public void DrawFrame(int scale)
-        {
-            for (int y = 0; y < ScreenHeight; y++)
-            {
-                for (int x = 0; x < ScreenWidth; x++)
-                {
-                    Color color = frameBuffer[y * ScreenWidth + x];
-                    Raylib.ImageDrawPixel(ref image, x, y, color);
-                }
-            }
-
-            unsafe
-            {
-                Raylib.UpdateTexture(texture, image.Data);
-            }
-
-            Raylib.DrawTextureEx(texture, new System.Numerics.Vector2(textureX, textureY), 0.0f, scale, Color.White);
-        }
-
         public PPU(Bus bus, TvSystem tvSystem)
         {
             this.bus = bus;
             this.tvSystem = tvSystem;
 
             state = new PPUState();
-
             totalScanlines = Timing.For(tvSystem).ScanlinesPerFrame;
-
-            image = Raylib.GenImageColor(ScreenWidth, ScreenHeight, Color.Black);
-            texture = Raylib.LoadTextureFromImage(image);
             frameBuffer = new Color[ScreenWidth * ScreenHeight];
 
             Console.WriteLine("PPU init");

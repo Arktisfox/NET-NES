@@ -16,6 +16,10 @@ namespace Emulator
         // Video
         public int Scale = 2;
         public TvSystemMode TvSystemMode = TvSystemMode.Auto;
+        public int PaddingTop = 0;
+        public int PaddingBottom = 0;
+        public int PaddingLeft = 0;
+        public int PaddingRight = 0;
 
         // Debug
         public bool DrawFPS = false;
