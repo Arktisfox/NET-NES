@@ -1,32 +1,68 @@
 namespace NES
 {
+    public struct BusState
+    {
+        public byte[] ram; //2KB RAM
+
+        public byte openBus;
+        public long masterCycle;
+        public int ppuCycleRemainder;
+
+        public BusState()
+        {
+            ram = new byte[2048];
+            openBus = 0x00;
+            masterCycle = 0x00;
+            ppuCycleRemainder = 0;
+        }
+
+        public BusState(BusState other)
+        {
+            ram = new byte[other.ram.Length];
+            Array.Copy(other.ram, ram, ram.Length);
+
+            openBus = other.openBus;
+            masterCycle = other.masterCycle;
+            ppuCycleRemainder = other.ppuCycleRemainder;
+        }
+
+        public BusState Clone()
+        {
+            return new BusState(this);
+        }
+    }
+
     public class Bus : IBus
     {
         // Public interface
+        public BusState State
+        {
+            get => state.Clone();
+            set => state = value.Clone();
+        }
+
         public APU APU => apu;
         public CPU CPU => cpu;
         public PPU PPU => ppu;
         public Cartridge Cartridge => cartridge;
         public Input Input => input;
-        public byte OpenBus => openBus;
-        public long MasterCycle => masterCycle;
+        public byte OpenBus => state.openBus;
+        public long MasterCycle => state.masterCycle;
+        public ReadOnlySpan<byte> RAM => state.ram;
 
-        // PRivate data
+        // Private data
+        private BusState state;
+
         private APU apu;
         private CPU cpu;
         private PPU ppu;
         private Cartridge cartridge;
         private Input input;
 
-        public byte[] ram; //2KB RAM
-        private byte openBus = 0x00; // Byte most recently driven onto the CPU's external data bus by any device
-        
-        private long masterCycle;
-        private bool IsGetCycle => ((masterCycle & 1) == 0) == GetCycleIsEven;
-        private bool NextCycleIsGet => (((masterCycle + 1) & 1) == 0) == GetCycleIsEven;
+        private bool IsGetCycle => ((MasterCycle & 1) == 0) == GetCycleIsEven;
+        private bool NextCycleIsGet => (((MasterCycle + 1) & 1) == 0) == GetCycleIsEven;
 
         private Timing timing;
-        private int ppuCycleRemainder;
 
         private int accessesThisInstruction;
         private bool tickInProgress;
@@ -40,15 +76,14 @@ namespace NES
 
         public Bus(Cartridge cartridge, TvSystem tvSystem)
         {
+            this.state = new BusState();
             this.cartridge = cartridge;
-            timing = Timing.For(tvSystem);
-            cpu = new CPU(this);
-            ppu = new PPU(this, tvSystem);
-            apu = new APU(this, tvSystem);
-            input = new Input(this);
-
-            ram = new byte[2048];
-
+            this.timing = Timing.For(tvSystem);
+            this.cpu = new CPU(this);
+            this.ppu = new PPU(this, tvSystem);
+            this.apu = new APU(this, tvSystem);
+            this.input = new Input(this);
+            
             Console.WriteLine("Bus init");
         }
 
@@ -61,23 +96,23 @@ namespace NES
             accessesThisInstruction++;
             if (LatchAccessAtEndOfCycle) Tick();
 
-            byte result = openBus;
+            byte result = state.openBus;
             bool updatesOpenBus = true;
 
             if (address == 0x4015)
             {
                 // Bit 5 of the APU status register is unused/undefined and
                 // reads back as open bus rather than any real APU state.
-                result = (byte)((apu.ReadStatus() & 0xDF) | (openBus & 0x20));
+                result = (byte)((apu.ReadStatus() & 0xDF) | (state.openBus & 0x20));
                 updatesOpenBus = false;
             }
             else if (address == 0x4016)
             {
-                result = (byte)((openBus & 0xE0) | input.Read4016());
+                result = (byte)((state.openBus & 0xE0) | input.Read4016());
             }
             else if (address == 0x4017)
             {
-                result = (byte)((openBus & 0xE0) | input.Read4017());
+                result = (byte)((state.openBus & 0xE0) | input.Read4017());
             }
             else if (address >= 0x2000 && address <= 0x3FFF)
             {
@@ -86,14 +121,14 @@ namespace NES
             }
             else if (address >= 0x0000 && address < 0x2000)
             {
-                result = ram[address & 0x07FF];
+                result = state.ram[address & 0x07FF];
             }
             else if (address >= 0x6000 && address <= 0xFFFF)
             {
                 result = cartridge.CPURead(address);
             }
 
-            if (updatesOpenBus) openBus = result;
+            if (updatesOpenBus) state.openBus = result;
             lastAccessAddress = address;
 
             if (!LatchAccessAtEndOfCycle) Tick();
@@ -105,7 +140,7 @@ namespace NES
             accessesThisInstruction++;
             if (LatchAccessAtEndOfCycle) Tick();
 
-            openBus = value;
+            state.openBus = value;
             lastAccessAddress = address;
             bool pendingStrobe = false;
 
@@ -132,7 +167,7 @@ namespace NES
             }
             else if (address >= 0x0000 && address < 0x2000)
             {
-                ram[address & 0x07FF] = value;
+                state.ram[address & 0x07FF] = value;
             }
             else if (address >= 0x6000 && address <= 0xFFFF)
             {
@@ -206,11 +241,11 @@ namespace NES
             }
 
             tickInProgress = true;
-            masterCycle++;
+            state.masterCycle++;
 
-            int ppuScaled = timing.PpuCyclesNumerator + ppuCycleRemainder;
+            int ppuScaled = timing.PpuCyclesNumerator + state.ppuCycleRemainder;
             int ppuCycles = ppuScaled / timing.PpuCyclesDenominator;
-            ppuCycleRemainder = ppuScaled % timing.PpuCyclesDenominator;
+            state.ppuCycleRemainder = ppuScaled % timing.PpuCyclesDenominator;
 
             ppu.Step(ppuCycles);
             apu.Step(1);

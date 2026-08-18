@@ -4,16 +4,20 @@ using System.Text;
 public class SaveState
 {
     private const string MAGIC = "NETNESSAVE";
-    private const int VERSION = 5; // Version 1: No APU
+    private const int VERSION = 6; // Version 1: No APU
                                    // Version 2: Broken APU state
                                    // Version 3: Proper APU state
                                    // Version 4: Input state
                                    // Version 5: Added controller #2
+                                   // Version 6: Added missing ppu and bus states
 
     private byte[] romHash = new byte[32]; // sha256
 
     private PPUState ppuState;
     private CPUState cpuState;
+
+    private bool haveFullBusState = false; // Previously only RAM was stored
+    private BusState busState;
 
     private bool haveApuState = false;
     private APUState apuState;
@@ -23,7 +27,6 @@ public class SaveState
 
     private byte[] cartridgeRAM;
     private byte[] chrRAM;
-    private byte[] ram;
 
     private int mapperTypeID = 0;
 
@@ -113,11 +116,16 @@ public class SaveState
 
         romHash = reader.ReadBytes(32);
 
-        // Reset flags
+        // Reset data
+        haveFullBusState = false;
         haveApuState = false;
         haveUxRomState = false;
         haveMMC3State = false;
         haveMMC1State = false;
+
+        busState = new BusState();
+        ppuState = new PPUState();
+        cpuState = new CPUState();
 
         // Read save state data
         if (version >= 1)
@@ -157,8 +165,8 @@ public class SaveState
                 int ramSize = reader.ReadInt32();
                 if (ramSize < 0 || ramSize > 1024 * 1024) throw new InvalidDataException("Invalid RAM size.");
 
-                ram = reader.ReadBytes(ramSize);
-                if (ram.Length != ramSize) throw new EndOfStreamException();
+                busState.ram = reader.ReadBytes(ramSize);
+                if (busState.ram.Length != ramSize) throw new EndOfStreamException();
 
             }
             /* PPU */ {
@@ -362,6 +370,25 @@ public class SaveState
                 inputState.controller2.controllerShift = reader.ReadByte();
             }
         }
+        if (version >= 6)
+        {
+            haveFullBusState = true;
+
+            ppuState.openBus = reader.ReadByte();
+            ppuState.suppressVblankThisFrame = reader.ReadBoolean();
+            ppuState.oamEvalAddr = reader.ReadByte();
+            ppuState.oddFrame = reader.ReadBoolean();
+
+            cpuState.nmiLine = reader.ReadBoolean();
+            cpuState.nmiEdgeCycle = reader.ReadInt64();
+            cpuState.lastInstructionEndCycle = reader.ReadInt64();
+
+            busState.openBus = reader.ReadByte();
+            busState.masterCycle = reader.ReadInt64();
+            busState.ppuCycleRemainder = reader.ReadInt32();
+
+            //tvSystem = (TvSystem)reader.ReadByte();
+        }
     }
 
     public void Save(Stream stream)
@@ -390,8 +417,8 @@ public class SaveState
         writer.Write(cartridgeRAM.Length);
         writer.Write(cartridgeRAM);
 
-        writer.Write(ram.Length);
-        writer.Write(ram);
+        writer.Write(busState.ram.Length);
+        writer.Write(busState.ram);
 
         // PPU
         writer.Write(ppuState.VRAM);
@@ -453,7 +480,7 @@ public class SaveState
             writer.Write((int)mmc3State.mirroring);
         }
 
-        // APU
+        // V 2/3 Fields (APU)
         WritePulseChannelState(writer, apuState.pulse1);
         WritePulseChannelState(writer, apuState.pulse2);
 
@@ -518,11 +545,26 @@ public class SaveState
         writer.Write(apuState.frameIrqInhibit);
         writer.Write(apuState.frameIrqFlag);
 
+        // V4/5 Fields
         writer.Write(inputState.strobe);
         writer.Write(inputState.controller1.controllerState);
         writer.Write(inputState.controller1.controllerShift);
         writer.Write(inputState.controller2.controllerState);
         writer.Write(inputState.controller2.controllerShift);
+
+        // V6 Fields
+        writer.Write(ppuState.openBus.Read());
+        writer.Write(ppuState.suppressVblankThisFrame);
+        writer.Write(ppuState.oamEvalAddr);
+        writer.Write(ppuState.oddFrame);
+
+        writer.Write(cpuState.nmiLine);
+        writer.Write(cpuState.nmiEdgeCycle);
+        writer.Write(cpuState.lastInstructionEndCycle);
+
+        writer.Write(busState.openBus);
+        writer.Write(busState.masterCycle);
+        writer.Write(busState.ppuCycleRemainder);
     }
 
     public void Apply(NES.NES nes)
@@ -539,10 +581,13 @@ public class SaveState
         }
 
         // Apply RAM
-        Array.Copy(
-            ram,
-            nes.Bus.ram,
-            Math.Min(ram.Length, nes.Bus.ram.Length));
+        if(!haveFullBusState)
+        {
+            // only have RAM
+            var currentState = nes.Bus.State;
+            Array.Copy(busState.ram, currentState.ram, Math.Min(currentState.ram.Length, busState.ram.Length));
+            nes.Bus.State = currentState;
+        }
         if (cartridgeRAM != null)
         {
             Array.Copy(
@@ -559,6 +604,7 @@ public class SaveState
         }
 
         // Apply States
+        if (haveFullBusState) nes.Bus.State = busState;
         nes.Bus.PPU.State = ppuState;
         nes.Bus.CPU.State = cpuState;
         if (haveApuState) nes.Bus.APU.State = apuState;
@@ -567,13 +613,14 @@ public class SaveState
 
     public SaveState(NES.NES nes)
     {
+        busState = nes.Bus.State;
         cpuState = nes.Bus.CPU.State;
-        ram = nes.Bus.ram.ToArray();
         ppuState = nes.Bus.PPU.State;
         apuState = nes.Bus.APU.State;
         inputState = nes.Bus.Input.State;
         haveApuState = true;
         haveInputState = true;
+        haveFullBusState = true;
 
         var cart = nes.Cartridge;
         romHash = cart.GetRomHash();

@@ -9,6 +9,11 @@ namespace NES
         public bool irqRequested;
         public bool nmiRequested;
 
+        public bool nmiLine;
+        public long nmiEdgeCycle;
+
+        public long lastInstructionEndCycle;
+
         public CPUState()
         {
             A = X = Y = 0;
@@ -17,6 +22,9 @@ namespace NES
             status = 0;
             irqRequested = false;
             nmiRequested = false;
+            nmiLine = false;
+            nmiEdgeCycle = long.MinValue;
+            lastInstructionEndCycle = 0;
         }
     }
 
@@ -39,10 +47,6 @@ namespace NES
         private const int FLAG_N = 7; //Negative
 
         private IBus bus;
-
-        private bool nmiLine = false;
-        private long nmiEdgeCycle = long.MinValue;
-        private long lastInstructionEndCycle = 0;
 
         private static bool doFudge = false;
         private static Random fudger = new Random();
@@ -132,24 +136,24 @@ namespace NES
 
         public void SetNmiLine(bool asserted)
         {
-            if (asserted && !nmiLine)
+            if (asserted && !state.nmiLine)
             {
                 state.nmiRequested = true;
-                nmiEdgeCycle = bus.MasterCycle;
+                state.nmiEdgeCycle = bus.MasterCycle;
             }
             else if (!asserted)
             {
                 // The line dropped. If the CPU has not yet polled this edge
                 // (i.e. it arrived during the instruction currently running),
                 // the NMI never happens.
-                if (state.nmiRequested && nmiEdgeCycle > lastInstructionEndCycle - 1)
+                if (state.nmiRequested && state.nmiEdgeCycle > state.lastInstructionEndCycle - 1)
                 {
                     state.nmiRequested = false;
-                    nmiEdgeCycle = long.MinValue;
+                    state.nmiEdgeCycle = long.MinValue;
                 }
             }
 
-            nmiLine = asserted;
+            state.nmiLine = asserted;
         }
 
         public int ExecuteInstruction()
@@ -157,12 +161,12 @@ namespace NES
             // An NMI edge is only visible to this instruction's interrupt
             // poll if it arrived at or before the second-to-last cycle of the
             // previous instruction.
-            bool nmiVisible = state.nmiRequested && nmiEdgeCycle <= lastInstructionEndCycle - 1;
+            bool nmiVisible = state.nmiRequested && state.nmiEdgeCycle <= state.lastInstructionEndCycle - 1;
 
             bus.BeginInstruction();
             int used = ExecuteInstructionCore(nmiVisible);
             bus.EndInstruction(used);
-            lastInstructionEndCycle = bus.MasterCycle;
+            state.lastInstructionEndCycle = bus.MasterCycle;
             return used;
         }
 
@@ -174,7 +178,7 @@ namespace NES
             if (nmiVisible)
             {
                 state.nmiRequested = false;
-                nmiEdgeCycle = long.MinValue;
+                state.nmiEdgeCycle = long.MinValue;
                 return NMI();
             }
 
