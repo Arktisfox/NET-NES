@@ -227,9 +227,7 @@ namespace NES
         private readonly int[] spriteX = new int[8];
         private bool spriteZeroInScanline;
 
-        // The sprite 0 hit flag is raised one dot after the overlapping pixel
-        // is emitted. If the sprite-hit timing sub-tests disagree by a constant,
-        // this delay is the thing to adjust.
+        // The sprite 0 hit flag is raised one dot after detection
         private bool sprite0HitPending;
 
         private static Color[][] BuildEmphasisPalettes()
