@@ -193,7 +193,13 @@ namespace Emulator
             bool needsCtrl = RequireCtrl.TryGetValue(button, out bool req) && req;
             if (CtrlHeld() != needsCtrl) return false;
 
-            if (Raylib.IsKeyPressed(Bindings[button])) return true;
+            if (Raylib.IsGamepadAvailable(GamepadIndex))
+            {
+                var pad = GamepadBindings[button];
+                if (pad.HasValue && Raylib.IsGamepadButtonPressed(GamepadIndex, pad.Value)) return true;
+            }
+
+           if (Raylib.IsKeyPressed(Bindings[button])) return true;
 
             var alt = AltBindings[button];
             if (alt.HasValue && Raylib.IsKeyPressed(alt.Value)) return true;
